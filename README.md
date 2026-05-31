@@ -33,7 +33,9 @@ Then open <http://127.0.0.1:5000> in your browser. Pick a folder (or paste a pat
 
 A typical workflow on a big card is **Cull → Dedup → Rank** in order — each step feeds its survivors to the next, so ranking only scores the photos worth scoring.
 
-<div align="center"><iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/99fJBdjp3is?si=8lLeUFSN7IvmiQHt" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>
+<div align="center">
+  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/99fJBdjp3is?si=8lLeUFSN7IvmiQHt" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</div>
 
 ## How it works
 
