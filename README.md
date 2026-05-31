@@ -35,7 +35,7 @@ A typical workflow on a big card is **Cull → Dedup → Rank** in order — eac
 
 <div align="center">
   <a href="https://www.youtube.com/watch?v=99fJBdjp3is">
-    <img src="https://img.youtube.com/vi/VIDEO_ID/hqdefault.jpg" alt="Watch on YouTube" />
+    <img width="1345" height="912" alt="SCR-20260531-npnc" src="https://github.com/user-attachments/assets/caf8b6a4-0337-4d1e-b46e-f2ff06360239" alt="Watch on YouTube" />
   </a>
 </div>
 
