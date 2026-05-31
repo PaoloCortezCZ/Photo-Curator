@@ -57,6 +57,9 @@ A typical workflow on a big card is **Cull → Dedup → Rank** in order — eac
 
 ## How it works
 
+<img width="2752" height="1536" alt="Efficient_Photo_Culling_Pipeline" src="https://github.com/user-attachments/assets/4dba8472-c45a-42d6-aa04-070f9843c639" />
+
+
 | Step | Metric | Notes |
 |------|--------|-------|
 | Cull | `var(Laplacian) / var(image)` on a 1024px copy | Resolution-independent; normalizes out contrast so haze ≠ blur. Threshold is adjustable. |
