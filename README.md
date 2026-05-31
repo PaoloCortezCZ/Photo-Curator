@@ -53,10 +53,7 @@ A long shoot leaves you with thousands of near-identical frames, blurred misfire
 <img width="800" height="450" alt="PhotoCuratorv3 4-ezgif com-video-to-gif-converter (2)" src="https://github.com/user-attachments/assets/1a5a205a-9358-4422-9da4-c1d1e64e3416" />
 </div>
 
-<img width="2855" height="1866" alt="Rank view" src="https://github.com/user-attachments/assets/bc403303-2edf-4a48-9f25-27502627416f" />
-
 <img width="3550" height="1497" alt="SCR-20260531-sxoh" src="https://github.com/user-attachments/assets/f63464b1-02d2-4bb6-8db1-72b4c861f5b5" />
-
 
 <img width="2139" height="954" alt="Rank radar" src="https://github.com/user-attachments/assets/2499032b-35da-4823-8d01-0efee29c7b58" />
 
