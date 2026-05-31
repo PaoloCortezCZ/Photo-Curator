@@ -37,16 +37,23 @@ Built for photographers who come home from a trip with a few thousand frames and
 
 A long shoot leaves you with thousands of near-identical frames, blurred misfires, and a handful of genuine keepers buried in the middle. Going through them by hand is slow and easy to get wrong. Photo Curator does the first ruthless pass for you — in seconds per hundred photos — and **leaves every decision reversible**. Nothing is deleted or moved until you say so, and your files never leave your computer.
 
-## Features
+## Photo Curator Features
 
+## Cull
 - **1 · Cull** — flags out-of-focus shots using a *contrast-normalized* sharpness measure, so genuinely soft frames are caught while low-contrast-but-sharp shots (haze, night, big skies) are kept. Sorts into **Sharp / Soft (recoverable) / Blurry**, with a one-click **Sharp ⇄ Blurry** override on every photo. Blurry shots move to `Blurred/` only when you press **Move blurry** — review first, move second.
 
+<div align="center"><img width="800" height="450" alt="PhotoCuratorv3 4-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/aa7b4452-f6ba-497c-8ed6-b31748a7e068" /></div>
+
+## Dedup
 - **2 · Dedup** — global perceptual-hash clustering collapses burst sequences to a single frame. EXIF capture-time tightens burst detection, ORB feature-matching prevents distinct scenes from being wrongly merged, and the **sharpest** frame of each group is kept and labelled **"Best of N"** (so you can see how many near-duplicates it stood in for). Frames with no near-duplicate are labelled **"Original"**. Matching is vectorized and signatures are cached, so big cards stay fast.
 
 <img width="2157" height="963" alt="Dedup-Japan" src="https://github.com/user-attachments/assets/a7a7eb2d-f68e-4ec0-9b0b-efc50769c0b2" />
 
-
+## Rank and find TOP Photos
 - **3 · Rank** — scores each photo on composition, lighting, focus, color, and contrast, then shows your **TOP N** with a per-photo hexagonal radar chart and a TOP-N average "metric profile". Ranking shows live per-photo progress with **percentage, elapsed time, and ETA**. If you skip Dedup, ranking folds the clustering in automatically so a one-click run still gives a burst-free result.
+<div align="center">
+<img width="800" height="450" alt="PhotoCuratorv3 4-ezgif com-video-to-gif-converter (2)" src="https://github.com/user-attachments/assets/1a5a205a-9358-4422-9da4-c1d1e64e3416" />
+</div>
 
 <img width="2855" height="1866" alt="Rank view" src="https://github.com/user-attachments/assets/bc403303-2edf-4a48-9f25-27502627416f" />
 
@@ -54,6 +61,8 @@ A long shoot leaves you with thousands of near-identical frames, blurred misfire
 
 
 <img width="2139" height="954" alt="Rank radar" src="https://github.com/user-attachments/assets/2499032b-35da-4823-8d01-0efee29c7b58" />
+
+## ⚡️God Mode
 
 - **⚡ God Mode** — one button runs the whole pipeline automatically: **Cull → Dedup → Rank**, advancing through each stage and landing on your ranked TOP N. It produces the ranking *without moving any files*, so you still review and move rejects yourself.
 
