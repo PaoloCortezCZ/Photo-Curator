@@ -66,6 +66,7 @@ state = {
     'weights': dict(DEFAULT_WEIGHTS),
     'topn': 50,
     'excluded': set(),
+    'phone_bg': set(),   # paths flagged "suitable as phone wallpaper"
     'auto': {'cull': False, 'dedup': False},
     'cull':  {**_blank(), 'sharp': 0, 'soft': 0, 'blurry': 0, 'sharp_paths': []},
     'dedup': {**_blank(), 'groups': 0, 'kept_paths': []},
@@ -554,6 +555,7 @@ def build_topn(weights=None, topn=None):
         out.append({
             'name': s.filename, 'path': s.path, 'thumb': thumb_url(s.path),
             'rank': rank, 'score': f"{ov:.1f}",
+            'phonebg': s.path in state['phone_bg'],
             'scores': {'composition': round(s.composition), 'technical': round(s.technical),
                        'sharpness': round(s.sharpness), 'color': round(s.color),
                        'aesthetic': round(s.aesthetic)},
@@ -627,12 +629,12 @@ def run_rank(folder):
 # --------------------------------------------------------------------------- #
 HTML = r'''<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Photo Curator v3.4</title>
+<title>Photo Curator v3.5</title>
 <style>
   :root{--bg:#f4f6fb;--panel:#fff;--panel2:#eef1f7;--text:#1c2330;--muted:#6b7280;
-        --accent:#2563eb;--good:#16a34a;--warn:#d97706;--bad:#dc2626;--border:#dde3ec;--shadow:rgba(20,40,80,.10)}
+        --accent:#2563eb;--good:#16a34a;--warn:#d97706;--bad:#dc2626;--border:#dde3ec;--shadow:rgba(20,40,80,.10);color-scheme:light}
   [data-theme=dark]{--bg:#0f141c;--panel:#161d28;--panel2:#1d2633;--text:#e8edf5;--muted:#9aa6b6;
-        --accent:#3b82f6;--border:#27313f;--shadow:rgba(0,0,0,.5)}
+        --accent:#3b82f6;--border:#27313f;--shadow:rgba(0,0,0,.5);color-scheme:dark}
   *{box-sizing:border-box}
   body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text)}
   .top{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:linear-gradient(90deg,#1e40af,#2563eb);color:#fff}
@@ -653,7 +655,8 @@ HTML = r'''<!doctype html><html lang="en"><head>
   .folder-row .btn{width:auto;flex:0 0 auto;white-space:nowrap;padding:11px 16px}
   .main{flex:1;overflow-y:auto;padding:14px 18px}
   .sidebar-title{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-  input[type=text],input[type=number]{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2);color:var(--text)}
+  input[type=text],input[type=number]{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2);color:var(--text);-webkit-text-fill-color:var(--text)}
+  input[type=text]::placeholder,input[type=number]::placeholder{color:var(--muted);-webkit-text-fill-color:var(--muted)}
   .btn{width:100%;padding:11px;border:none;border-radius:9px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer;font-size:14px}
   .btn:hover{filter:brightness(1.07)}
   .btn.stopping{background:var(--bad)}
@@ -703,6 +706,11 @@ HTML = r'''<!doctype html><html lang="en"><head>
   .badge.good{background:var(--good)} .badge.bad{background:var(--bad)}
   .status-toggle{position:absolute;bottom:34px;right:6px;z-index:6;border:none;border-radius:5px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer;background:rgba(0,0,0,.62);color:#fff}
   .status-toggle:hover{background:rgba(0,0,0,.85)}
+  .photo-card.pbg{border-color:#e8632a!important;box-shadow:0 0 0 2px #e8632a}
+  .pbg-toggle{position:absolute;top:6px;right:6px;z-index:7;border:none;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;background:rgba(0,0,0,.55);color:#fff;backdrop-filter:blur(2px);transition:background .15s,transform .15s}
+  .pbg-toggle:hover{background:rgba(0,0,0,.8);transform:scale(1.08)}
+  .pbg-toggle.on{background:#e8632a;box-shadow:0 1px 5px rgba(232,99,42,.6)}
+  .lb-btn.pbg{background:rgba(232,99,42,.85)} .lb-btn.pbg:hover{background:#e8632a} .lb-btn.pbg.on{background:#e8632a}
   .photo-img{width:100%;aspect-ratio:3/2;object-fit:cover;display:block}
   .photo-info{padding:6px 8px}.pi-row{display:flex;align-items:center;gap:6px}
   .photo-name{flex:1;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -744,14 +752,14 @@ HTML = r'''<!doctype html><html lang="en"><head>
   .toast.good{border-left-color:var(--good)} .toast.bad{border-left-color:var(--bad)} .toast.info{border-left-color:var(--accent)}
 </style></head><body>
 <div class="top">
-  <div class="brand">🎞️ Photo Curator <small>v3.4</small></div>
+  <div class="brand">🎞️ Photo Curator <small>v3.5</small></div>
   <div class="steps">
     <div class="step active" data-step="cull">1 · Cull</div>
     <div class="step" data-step="dedup">2 · Dedup</div>
     <div class="step" data-step="rank">3 · Rank</div>
   </div>
   <div class="top-right">
-    <a class="kofi-btn" href='https://ko-fi.com/G2G51F6E2O' target='_blank' rel='noopener'><img height='32' style='border:0;height:32px' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' alt='Buy Me a Coffee at ko-fi.com'></a>
+    <a class="kofi-btn" href='https://ko-fi.com/B3S720JCU6' target='_blank' rel='noopener'><img height='32' style='border:0;height:32px' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' alt='Buy Me a Coffee at ko-fi.com'></a>
     <button class="theme" id="themeToggle">🌙</button>
   </div>
 </div>
@@ -782,6 +790,7 @@ HTML = r'''<!doctype html><html lang="en"><head>
     <!-- Pinned action footer: always visible regardless of scroll / window height -->
     <div class="sidebar-actions">
       <button class="btn-ghost" id="exportBtn" style="display:none">⬇ Export TOP photos…</button>
+      <button class="btn-ghost" id="exportPbgBtn" style="display:none">📱 Export Phone BG…</button>
       <button class="btn-ghost" id="moveBlurryBtn" style="display:none">🗂️ Move blurry → Blurred/</button>
       <button class="btn" id="startBtn">🚀 Start</button>
       <button class="btn god" id="godBtn" title="Run Cull → Dedup → Rank automatically">⚡ God Mode · Run All</button>
@@ -802,6 +811,7 @@ HTML = r'''<!doctype html><html lang="en"><head>
   <div class="lb-bar">
     <div><div id="lbName">—</div><div style="font-size:12px;opacity:.7" id="lbCount"></div></div>
     <div class="lb-actions">
+      <button class="lb-btn pbg" id="lbPhoneBg" style="display:none">📱 Phone BG</button>
       <button class="lb-btn toggle" id="lbToggle" style="display:none">→ Blurry</button>
       <button class="lb-btn restore" id="lbRestore" style="display:none">↺ Restore all</button>
       <button class="lb-btn remove" id="lbRemove" style="display:none">✕ Remove</button>
@@ -886,6 +896,7 @@ function activateStep(step){
   document.querySelectorAll('.step').forEach(x=>x.classList.toggle('active',x.dataset.step===step));
   renderSettings();
   document.getElementById('exportBtn').style.display='none';
+  document.getElementById('exportPbgBtn').style.display='none';
   {const mb=document.getElementById('moveBlurryBtn');mb.style.display='none';mb.classList.add('btn-ghost');mb.classList.remove('btn','cta');startBtn.classList.remove('secondary');}
   document.getElementById('progressWrap').style.display='none';  // clear stale summary
   document.getElementById('gallery').innerHTML=emptyHTML(currentStep);
@@ -901,16 +912,29 @@ document.querySelectorAll('.step').forEach(t=>t.onclick=()=>{
 renderSettings();
 
 /* cull filter chips */
-let cullFilter='all';
+let cullFilter='all', rankFilter='all';
 function setupFilterBar(){
   const bar=document.getElementById('filterBar');
-  if(currentStep!=='cull'){bar.style.display='none';return;}
-  const opts=[['all','All'],['sharp','Sharp'],['soft','Soft ★'],['blurry','Blurry']];
-  bar.style.display='flex';
-  bar.innerHTML=opts.map(([k,l])=>`<button class="chip${k===cullFilter?' active':''}" data-f="${k}">${l}</button>`).join('');
-  bar.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{cullFilter=c.dataset.f;
-    bar.querySelectorAll('.chip').forEach(x=>x.classList.toggle('active',x.dataset.f===cullFilter));
-    renderCullStep(photos);});
+  if(currentStep==='cull'){
+    const opts=[['all','All'],['sharp','Sharp'],['soft','Soft ★'],['blurry','Blurry']];
+    bar.style.display='flex';
+    bar.innerHTML=opts.map(([k,l])=>`<button class="chip${k===cullFilter?' active':''}" data-f="${k}">${l}</button>`).join('');
+    bar.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{cullFilter=c.dataset.f;
+      bar.querySelectorAll('.chip').forEach(x=>x.classList.toggle('active',x.dataset.f===cullFilter));
+      renderCullStep(photos);});
+    return;
+  }
+  if(currentStep==='rank'){
+    if(!photos.length){bar.style.display='none';return;}
+    bar.style.display='flex';
+    bar.innerHTML=`<button class="chip${rankFilter==='all'?' active':''}" data-f="all">All TOP photos</button>`
+      +`<button class="chip${rankFilter==='pbg'?' active':''}" data-f="pbg">📱 Phone BG (<span id="pbgChipCount">0</span>)</button>`;
+    bar.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{rankFilter=c.dataset.f;
+      bar.querySelectorAll('.chip').forEach(x=>x.classList.toggle('active',x.dataset.f===rankFilter));
+      lastRankSig='';renderRank(photos);});
+    return;
+  }
+  bar.style.display='none';
 }
 setupFilterBar();
 document.getElementById('gallery').innerHTML=emptyHTML(currentStep);  // step explainer on load
@@ -941,6 +965,7 @@ function startStep(step){
   lastRankSig='';renderedCount=0;photoIdx=0;lastStep=step;
   gPage=0;lastGallerySig='';document.getElementById('pager').style.display='none';
   document.getElementById('exportBtn').style.display='none';
+  document.getElementById('exportPbgBtn').style.display='none';
   {const mb=document.getElementById('moveBlurryBtn');mb.style.display='none';mb.classList.add('btn-ghost');mb.classList.remove('btn','cta');startBtn.classList.remove('secondary');}setRemoved(0);
   setStartBtn(true);
   // Settings come from the active step's panel (activateStep switched it first).
@@ -1124,7 +1149,9 @@ function updatePager(){
   document.getElementById('pgNext').onclick=()=>{if(gPage<pages-1){gPage++;lastGallerySig='';renderGallery(gItems);window.scrollTo(0,0);}};
 }
 function rankCard(p,idx){const path=String(p.path).replace(/"/g,'&quot;');
-  return `<div class="photo-card kept" data-i="${idx}" data-path="${path}"><div class="rank-num">${p.rank!=null?p.rank:idx+1}</div>
+  const on=p.phonebg?' on':'';
+  return `<div class="photo-card kept${p.phonebg?' pbg':''}" data-i="${idx}" data-path="${path}"><div class="rank-num">${p.rank!=null?p.rank:idx+1}</div>
+    <button class="pbg-toggle${on}" data-path="${path}" title="${p.phonebg?'Phone wallpaper ✓ — click to remove':'Set as phone wallpaper'}">📱</button>
     <img class="photo-img" src="${p.thumb}" loading="lazy" decoding="async">
     <div class="photo-info"><div class="pi-row"><span class="photo-name">${p.name}</span>
       <button class="remove-btn" data-path="${path}" title="Remove from ranking (does not delete the file)">✕ Remove</button></div>
@@ -1132,18 +1159,33 @@ function rankCard(p,idx){const path=String(p.path).replace(/"/g,'&quot;');
 function renderRank(items){
   photos=items;const g=document.getElementById('gallery');
   if(lastStep!==currentStep){g.innerHTML='';lastRankSig='';lastStep=currentStep;}
-  if(!items.length){if(lastRankSig!==''||!g.querySelector('.photo-card'))g.innerHTML=EMPTY;lastRankSig='';return;}
-  const sig=items.map(p=>p.rank+':'+p.path).join('|');if(sig===lastRankSig)return;lastRankSig=sig;
+  const fbar=document.getElementById('filterBar');
+  if(!items.length){fbar.style.display='none';}
+  else if(fbar.style.display==='none'||!fbar.querySelector('.chip')){setupFilterBar();}
+  const view=(rankFilter==='pbg')?items.filter(p=>p.phonebg):items;
+  const pbgN=items.filter(p=>p.phonebg).length;
+  const pbgChip=document.getElementById('pbgChipCount');if(pbgChip)pbgChip.textContent=pbgN;
+  document.getElementById('exportPbgBtn').style.display=(currentStep==='rank'&&pbgN>0)?'block':'none';
+  if(!view.length){g.innerHTML=(items.length&&rankFilter==='pbg')?'<div class="empty"><div class="icon">📱</div><div>No photos flagged as phone wallpaper yet.<br>Tap the 📱 button on a top photo.</div></div>':EMPTY;lastRankSig='';return;}
+  const sig=rankFilter+'|'+view.map(p=>p.rank+':'+p.path+':'+(p.phonebg?1:0)).join('|');if(sig===lastRankSig)return;lastRankSig=sig;
   const emp=g.querySelector('.empty');if(emp)emp.remove();
   const existing={};g.querySelectorAll('.photo-card').forEach(n=>existing[n.dataset.path]=n);
   const frag=document.createDocumentFragment();
-  items.forEach((p,idx)=>{let node=existing[p.path];
-    if(node){const rn=node.querySelector('.rank-num');if(rn)rn.textContent=p.rank!=null?p.rank:idx+1;
+  view.forEach((p,idx)=>{let node=existing[p.path];
+    if(node&&node.classList.contains('pbg')===!!p.phonebg){const rn=node.querySelector('.rank-num');if(rn)rn.textContent=p.rank!=null?p.rank:idx+1;
       const sc=node.querySelector('.photo-score');if(sc)sc.textContent=p.score;node.dataset.i=idx;delete existing[p.path];}
-    else{const w=document.createElement('div');w.innerHTML=rankCard(p,idx);node=w.firstElementChild;}
+    else{if(node)node.remove();const w=document.createElement('div');w.innerHTML=rankCard(p,idx);node=w.firstElementChild;}
     frag.appendChild(node);});
   Object.values(existing).forEach(n=>n.remove());g.appendChild(frag);
-  document.getElementById('sShowing').textContent=items.length;
+  document.getElementById('sShowing').textContent=view.length;
+}
+function togglePhoneBg(path){
+  fetch('/api/toggle-phonebg',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})}).then(r=>r.json()).then(d=>{
+    if(d.error){toast(d.error,'bad');return;}
+    const pp=photos.find(x=>x.path===path);if(pp)pp.phonebg=d.phonebg;
+    lastRankSig='';renderRank(photos);
+    if(document.getElementById('lightbox').classList.contains('open')){lbList=(rankFilter==='pbg')?photos.filter(p=>p.phonebg):photos.slice();if(lbIndex>=lbList.length)lbIndex=Math.max(0,lbList.length-1);if(lbList.length)showLb();else closeLb();}
+    toast(d.phonebg?'📱 Added to Phone BG ('+d.count+')':'Removed from Phone BG ('+d.count+')','good');});
 }
 
 /* ---- cull (3-tier, reconciling, filterable) ---- */
@@ -1204,10 +1246,12 @@ function toggleStatus(path,btn,cb){
 /* ---- gallery clicks ---- */
 document.getElementById('gallery').addEventListener('click',e=>{
   const rm=e.target.closest('.remove-btn');if(rm){e.stopPropagation();removePhoto(rm.dataset.path);return;}
+  const pb=e.target.closest('.pbg-toggle');
+  if(pb){e.stopPropagation();togglePhoneBg(pb.dataset.path);return;}
   const tg=e.target.closest('.status-toggle');
   if(tg){e.stopPropagation();cullSetTier(tg.dataset.path,NEXT_TIER[tg.dataset.tier||'sharp']);return;}
   const c=e.target.closest('.photo-card');if(!c)return;
-  lbList=(currentStep==='cull')?cullView.slice():photos.slice();
+  lbList=(currentStep==='cull')?cullView.slice():(currentStep==='rank'&&rankFilter==='pbg')?photos.filter(p=>p.phonebg):photos.slice();
   openLb(parseInt(c.dataset.i));});
 
 /* ---- lightbox ---- */
@@ -1238,6 +1282,9 @@ function showLb(){
   rs.style.display=(currentStep==='rank'&&removedCount>0)?'inline-block':'none';
   tg.style.display=currentStep==='cull'?'inline-block':'none';
   if(currentStep==='cull')tg.textContent='⇄ '+(TIER_NAME[p.tier]||'Sharp')+' → '+(TIER_NAME[NEXT_TIER[p.tier||'sharp']]);
+  const pbg=document.getElementById('lbPhoneBg');
+  pbg.style.display=currentStep==='rank'?'inline-block':'none';
+  if(currentStep==='rank'){pbg.classList.toggle('on',!!p.phonebg);pbg.textContent=p.phonebg?'📱 Phone BG ✓':'📱 Phone BG';}
   const side=document.getElementById('lbSide');
   if(currentStep==='rank'&&p.scores){
     const metrics=CATS.map(([k,lab])=>({label:lab,value:(p.scores&&p.scores[k])||0}));
@@ -1267,11 +1314,13 @@ document.getElementById('lbToggle').onclick=()=>{const p=lbList[lbIndex];if(!p)r
     if(pp){pp.tier=d.tier;pp.badge=d.badge;pp.badgeType=d.badgeType;pp.kept=d.kept;pp.rejected=!d.kept;if(d.path)pp.path=d.path;if(d.thumb)pp.thumb=d.thumb;}
     p.tier=d.tier;if(d.path)p.path=d.path;
     lastCullSig='';renderCullStep(photos);showLb();});};
+document.getElementById('lbPhoneBg').onclick=()=>{const p=lbList[lbIndex];if(p)togglePhoneBg(p.path);};
 document.addEventListener('keydown',e=>{
   if(!document.getElementById('lightbox').classList.contains('open'))return;
   if(e.key==='Escape')closeLb();
   if(e.key==='ArrowLeft')document.getElementById('lbPrev').click();
   if(e.key==='ArrowRight')document.getElementById('lbNext').click();
+  if(currentStep==='rank'&&(e.key==='b'||e.key==='B')){e.preventDefault();const p=lbList[lbIndex];if(p)togglePhoneBg(p.path);}
   if(currentStep==='rank'&&(e.key==='x'||e.key==='X'||e.key==='Delete'||e.key==='Backspace')){e.preventDefault();lbRemoveCurrent();}});
 
 /* export */
@@ -1280,6 +1329,14 @@ document.getElementById('exportBtn').onclick=function(){
   fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topn:parseInt((document.getElementById('topn')||{}).value)||50})})
     .then(r=>r.json()).then(d=>{this.disabled=false;this.textContent='⬇ Export TOP photos…';
       toast(d.error?('Export failed: '+d.error):('✓ Copied '+d.copied+' photos to\n'+d.dest), d.error?'bad':'good');});
+};
+document.getElementById('exportPbgBtn').onclick=function(){
+  this.disabled=true;this.textContent='Exporting…';
+  fetch('/api/export-phonebg',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+    .then(r=>r.json()).then(d=>{this.disabled=false;this.textContent='📱 Export Phone BG…';
+      if(d.error){toast('Export failed: '+d.error,'bad');return;}
+      if(!d.copied&&!d.cropped){toast(d.note||'Nothing flagged as Phone BG.','bad');return;}
+      toast('✓ '+d.copied+' originals + '+d.cropped+' wallpapers (1290×2796) to\n'+d.dest,'good');});
 };
 document.getElementById('moveBlurryBtn').onclick=function(){
   const b=document.querySelectorAll('.photo-card[data-tier="blurry"]').length;
@@ -1501,6 +1558,95 @@ def api_export():
         except Exception as e:
             logger.warning(f"export fail {item['path']}: {e}")
     return jsonify({'ok': True, 'copied': copied, 'dest': str(dest)})
+
+
+# --------------------------------------------------------------------------- #
+#  Phone Background selector
+#  Flag TOP photos as "suitable as phone wallpaper", then export both the
+#  original and a universal phone-cropped (1290 x 2796, 19.5:9) version.
+#  19.5:9 covers iPhones pixel-perfect and nearly all Android (phones zoom to
+#  fill, so 20:9 screens crop only a hair). One ratio, no device picker.
+# --------------------------------------------------------------------------- #
+WALLPAPER_W, WALLPAPER_H = 1290, 2796  # universal 19.5:9 portrait
+
+
+@app.route('/api/toggle-phonebg', methods=['POST'])
+def api_toggle_phonebg():
+    """Flag / unflag a photo as suitable for a phone wallpaper."""
+    data = request.get_json() or {}
+    path = data.get('path', '')
+    if not path:
+        return jsonify({'error': 'no path'}), 400
+    if path in state['phone_bg']:
+        state['phone_bg'].discard(path)
+        on = False
+    else:
+        state['phone_bg'].add(path)
+        on = True
+    return jsonify({'ok': True, 'phonebg': on, 'count': len(state['phone_bg'])})
+
+
+def crop_to_phone(img, target_w=WALLPAPER_W, target_h=WALLPAPER_H):
+    """Center-crop a PIL image to the phone's aspect ratio, then resize to the
+    native resolution. Honors EXIF orientation first."""
+    img = ImageOps.exif_transpose(img).convert('RGB')
+    w, h = img.size
+    target_ar = target_w / target_h            # ~0.4615 (portrait)
+    src_ar = w / h
+    if src_ar > target_ar:
+        # Source is too wide -> crop the sides (center).
+        new_w = int(round(h * target_ar))
+        left = (w - new_w) // 2
+        box = (left, 0, left + new_w, h)
+    else:
+        # Source is too tall -> crop top/bottom (center).
+        new_h = int(round(w / target_ar))
+        top = (h - new_h) // 2
+        box = (0, top, w, top + new_h)
+    img = img.crop(box)
+    img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    return img
+
+
+@app.route('/api/export-phonebg', methods=['POST'])
+def api_export_phonebg():
+    """Export flagged wallpapers: an Original/ full-res copy and a Wallpaper/
+    1290x2796 (universal 19.5:9) center-cropped version, into a PhoneBG/ folder."""
+    folder = state.get('folder')
+    if not folder or not Path(folder).is_dir():
+        return jsonify({'error': 'No valid folder'}), 400
+    # Only export flagged photos that are still in the current TOP N.
+    top = build_topn()
+    flagged = [item for item in top if item['path'] in state['phone_bg']]
+    if not flagged:
+        return jsonify({'ok': True, 'copied': 0, 'cropped': 0,
+                        'dest': str(Path(folder) / 'PhoneBG'),
+                        'note': 'No photos flagged as Phone BG yet.'})
+    dest = Path(folder) / 'PhoneBG'
+    orig_dir = dest / 'Original'
+    crop_dir = dest / 'Wallpaper_19.5x9'
+    orig_dir.mkdir(parents=True, exist_ok=True)
+    crop_dir.mkdir(parents=True, exist_ok=True)
+    copied = cropped = 0
+    for item in flagged:
+        src = Path(item['path'])
+        if not src.is_file():
+            continue
+        stem = f"{item['rank']:03d}_{src.stem}"
+        try:
+            shutil.copy2(str(src), str(orig_dir / f"{stem}{src.suffix}"))
+            copied += 1
+        except Exception as e:
+            logger.warning(f"phonebg original fail {src}: {e}")
+        try:
+            with Image.open(src) as im:
+                crop_to_phone(im).save(str(crop_dir / f"{stem}.jpg"),
+                                       format='JPEG', quality=92)
+            cropped += 1
+        except Exception as e:
+            logger.warning(f"phonebg crop fail {src}: {e}")
+    return jsonify({'ok': True, 'copied': copied, 'cropped': cropped,
+                    'dest': str(dest)})
 
 
 if __name__ == '__main__':
