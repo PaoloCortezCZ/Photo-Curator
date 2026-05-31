@@ -17,6 +17,9 @@ Built for photographers who come home from a trip with a few thousand frames and
 - **⚡ God Mode** — one button runs the whole pipeline automatically: **Cull → Dedup → Rank**, advancing through each stage and landing on your ranked TOP N. It produces the ranking without moving any files, so you still review and move rejects yourself.
 - Live preview (newest first) with pagination for huge sets, per-stage progress with elapsed time and **ETA**, EXIF-orientation-correct thumbnails, light/dark theme, lightbox with arrow-key review, and optional auto-move of rejects into `Blurred/`, `Duplicates/`, and `TOP_N/` subfolders.
 
+<img width="1440" height="810" alt="Slide04" src="https://github.com/user-attachments/assets/302e6cc6-430d-4702-a555-bc57ad42b271" />
+
+
 ## Install
 
 Requires **Python 3.9+**.
