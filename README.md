@@ -1,8 +1,6 @@
 # 📸 Photo Curator
 
-<img width="1503" height="744" alt="Photo-Curator-v34" src="https://github.com/user-attachments/assets/5e92e0df-be74-4837-889f-a6c3e5161f0b" />
-
-
+<img width="1503" height="744" alt="Photo-Curator-header" src="https://github.com/user-attachments/assets/d5f90cc7-2275-44ac-9dbc-d879582111b7" />
 <img width="2752" height="1536" alt="Automated_Photo_Culling_Workflow" src="https://github.com/user-attachments/assets/d6092dc5-b13e-469f-bdcb-9f03c7c7d223" />
 
 **v3.5** · A local, browser-based tool for culling and ranking large photo libraries. Point it at a folder of JPEGs and it walks you through three steps — **drop the blurry ones, collapse burst duplicates, and surface your best shots** — all running entirely on your own machine. Nothing is ever uploaded anywhere.
@@ -39,17 +37,17 @@ A long shoot leaves you with thousands of near-identical frames, blurred misfire
 
 ## Photo Curator Features
 
-## Cull
+## Cull - flags out-of-focus shots
 - **1 · Cull** — flags out-of-focus shots using a *contrast-normalized* sharpness measure, so genuinely soft frames are caught while low-contrast-but-sharp shots (haze, night, big skies) are kept. Sorts into **Sharp / Soft (recoverable) / Blurry**, with a one-click **Sharp ⇄ Blurry** override on every photo. Blurry shots move to `Blurred/` only when you press **Move blurry** — review first, move second.
 
 <div align="center"><img width="800" height="450" alt="PhotoCuratorv3 4-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/aa7b4452-f6ba-497c-8ed6-b31748a7e068" /></div>
 
-## Dedup
+## Dedup - collapses burst photo sequences to a single frame
 - **2 · Dedup** — global perceptual-hash clustering collapses burst sequences to a single frame. EXIF capture-time tightens burst detection, ORB feature-matching prevents distinct scenes from being wrongly merged, and the **sharpest** frame of each group is kept and labelled **"Best of N"** (so you can see how many near-duplicates it stood in for). Frames with no near-duplicate are labelled **"Original"**. Matching is vectorized and signatures are cached, so big cards stay fast.
 
 <img width="2157" height="963" alt="Dedup-Japan" src="https://github.com/user-attachments/assets/a7a7eb2d-f68e-4ec0-9b0b-efc50769c0b2" />
 
-## Rank and find TOP Photos
+## Rank and find TOP Photos — scores each photo on composition, lighting, focus, color, and contrast
 - **3 · Rank** — scores each photo on composition, lighting, focus, color, and contrast, then shows your **TOP N** with a per-photo hexagonal radar chart and a TOP-N average "metric profile". Ranking shows live per-photo progress with **percentage, elapsed time, and ETA**. If you skip Dedup, ranking folds the clustering in automatically so a one-click run still gives a burst-free result.
 <div align="center">
 <img width="800" height="450" alt="PhotoCuratorv3 4-ezgif com-video-to-gif-converter (2)" src="https://github.com/user-attachments/assets/1a5a205a-9358-4422-9da4-c1d1e64e3416" />
