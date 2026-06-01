@@ -629,7 +629,7 @@ def run_rank(folder):
 # --------------------------------------------------------------------------- #
 HTML = r'''<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Photo Curator v3.7</title>
+<title>Photo Curator v4.0</title>
 <style>
   :root{--bg:#f4f6fb;--panel:#fff;--panel2:#eef1f7;--text:#1c2330;--muted:#6b7280;
         --accent:#2563eb;--good:#16a34a;--warn:#d97706;--bad:#dc2626;--border:#dde3ec;--shadow:rgba(20,40,80,.10);color-scheme:light}
@@ -761,7 +761,7 @@ HTML = r'''<!doctype html><html lang="en"><head>
   .toast.good{border-left-color:var(--good)} .toast.bad{border-left-color:var(--bad)} .toast.info{border-left-color:var(--accent)}
 </style></head><body>
 <div class="top">
-  <div class="brand">🎞️ Photo Curator <small>v3.7</small></div>
+  <div class="brand">🎞️ Photo Curator <small>v4.0</small></div>
   <div class="steps">
     <div class="step active" data-step="cull">1 · Cull</div>
     <div class="step" data-step="dedup">2 · Dedup</div>
@@ -1297,7 +1297,7 @@ function showLb(){
   const side=document.getElementById('lbSide');
   if(currentStep==='rank'&&p.scores){
     const metrics=CATS.map(([k,lab])=>({label:lab,value:(p.scores&&p.scores[k])||0}));
-    let html=`<div style="text-align:center">${radarSVG(metrics,230)}</div><h3>Category scores</h3>`;
+    let html=`<div style="text-align:center">${radarSVG(metrics,150)}</div><h3>Category scores</h3>`;
     CATS.forEach(([k,lab])=>html+=barRow(lab,(p.scores&&p.scores[k])||0,CATINFO[k],true));
     const d=p.detail||{};GROUPS.forEach(([k,lab,keys])=>{const cv=(p.scores&&p.scores[k]);html+=`<h3>${lab}<span>${cv!=null?cv:''}</span></h3>`;keys.forEach(key=>{if(key in d)html+=barRow(key,d[key],SUBINFO[key]);});});
     html+=`<div style="font-size:10px;opacity:.5;margin-top:14px">Hover any row for what it measures.</div>`;
@@ -1787,4 +1787,8 @@ def api_export_phonebg():
 
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
+    import os
+    # macOS reserves port 5000 for the AirPlay Receiver (returns HTTP 403).
+    # Default to 5014 ('50mm f/1.4'). Override with PHOTOCURATOR_PORT if needed.
+    _port = int(os.environ.get('PHOTOCURATOR_PORT', '5014'))
+    app.run(host='127.0.0.1', port=_port, debug=False, threaded=True)
