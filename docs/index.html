@@ -355,26 +355,61 @@
   <div class="wrap">
     <div class="section-head reveal">
       <span class="eyebrow">Get started</span>
-      <h2>One file. One double-click.</h2>
-      <p class="muted">Built for Apple Silicon Macs. Everything it needs is bundled — no pip, no terminal commands, no internet at run time.</p>
+      <h2>Two ways to install.</h2>
+      <p class="muted">Pick the one that fits. Both run 100% locally and open in your browser at <code>127.0.0.1:5014</code>.</p>
     </div>
-    <div class="dl">
-      <div class="reveal">
-        <ol class="steps">
-          <li>Unzip and keep the <b>PhotoCurator</b> folder together.</li>
-          <li>Right-click <b>“Start Photo Curator.command”</b> → <b>Open</b> (first time only).</li>
-          <li>A little boot animation plays while the engine warms up…</li>
-          <li>Your browser opens automatically at <code>127.0.0.1:5014</code>. Pick a folder, press Start.</li>
-        </ol>
-        <div class="cta" style="margin-top:22px">
-          <a class="btn btn-primary" href="https://github.com/PaoloCortezCZ/Photo-Curator">⬇ Download · Apple Silicon</a>
-          <a class="btn btn-ghost" href="https://ko-fi.com/B3S720JCU6" target="_blank">☕ Support on Ko-fi</a>
+
+    <div class="duo">
+      <!-- OPTION A — OFFLINE -->
+      <div class="card reveal" style="border-color:var(--brand)">
+        <div class="pad">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+            <h3 style="margin:0">📦 Offline package</h3>
+            <span style="background:var(--grad);color:#fff;font-size:11px;font-weight:800;letter-spacing:.06em;padding:4px 10px;border-radius:999px">RECOMMENDED</span>
+            <span style="margin-left:auto;font-size:12.5px;font-weight:700;color:var(--ink-soft);border:1px solid var(--line-strong);padding:3px 9px;border-radius:999px">~74 MB</span>
+          </div>
+          <p>For anyone who just wants it to work. Python and every image library are bundled inside — <b>no install, no terminal, no internet</b> needed.</p>
+          <ol class="steps">
+            <li>Unzip and keep the <b>PhotoCurator</b> folder together.</li>
+            <li>Right-click <b>“Start Photo Curator.command”</b> → <b>Open</b> (first time only).</li>
+            <li>A boot animation plays, then your browser opens automatically.</li>
+          </ol>
+          <div class="cta" style="margin-top:20px">
+            <a class="btn btn-primary" href="https://drive.proton.me/urls/CSB4VNX090#kLyaZ30kVBnr" target="_blank" rel="noopener">⬇ Download · Apple Silicon</a>
+          </div>
+          <p class="muted" style="font-size:12.5px;margin-top:12px">Apple Silicon (M1–M4) · macOS 11+ · runs entirely offline.</p>
         </div>
-        <p class="muted" style="font-size:13px;margin-top:14px">Runs on port 5014 — “50mm f/1.4” — because macOS reserves port 5000 for AirPlay.</p>
       </div>
-      <div class="terminal reveal">
-        <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
-<pre><span class="d">======================================</span>
+
+      <!-- OPTION B — SOURCE -->
+      <div class="card reveal">
+        <div class="pad">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+            <h3 style="margin:0">🛠️ Run from source</h3>
+            <span style="margin-left:auto;font-size:12.5px;font-weight:700;color:var(--ink-soft);border:1px solid var(--line-strong);padding:3px 9px;border-radius:999px">~120 KB</span>
+          </div>
+          <p>For developers, or anyone comfortable with Python. Tiny download — you install the libraries yourself. Cross-platform.</p>
+          <div style="background:#0b0f17;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:14px 16px;margin:16px 0 4px;font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.7;color:#c8d2e6">
+<span style="color:#6b7589"># requires Python 3.9+</span>
+unzip photo-curator-4.zip
+cd photo-curator-4
+<span style="color:#7cb6ff">pip install</span> -r requirements.txt
+<span style="color:#7cb6ff">python</span> photo_curator.py
+          </div>
+          <div class="cta" style="margin-top:18px">
+            <a class="btn btn-ghost" href="../photo-curator-4.zip">⬇ Download source</a>
+          </div>
+          <p class="muted" style="font-size:12.5px;margin-top:12px">Python 3.9+ · macOS / Windows / Linux · MIT licensed.</p>
+        </div>
+      </div>
+    </div>
+
+    <p class="muted" style="text-align:center;font-size:13px;margin:26px 0 0">Not sure which? Pick the <b>Offline package</b> — it needs nothing else installed.<br>Both run on port 5014 (“50mm f/1.4”) because macOS reserves port 5000 for AirPlay.</p>
+
+    <div class="terminal reveal" style="margin-top:30px">
+      <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+<pre><span class="d"># what the Offline package shows on launch</span>
+<span class="d">======================================</span>
         📸  <span class="b">Photo Curator v4.0</span>
 <span class="d">======================================</span>
 
@@ -393,7 +428,6 @@ Starting the photo engine...
   <span class="g">📸  Got it! Opening your browser...</span>
   <span class="b">http://127.0.0.1:5014</span>
 </pre>
-      </div>
     </div>
   </div>
 </section>
