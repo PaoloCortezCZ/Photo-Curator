@@ -58,7 +58,10 @@ A long shoot leaves you with thousands of near-identical frames, blurred misfire
 ## 📱 Phone Background selector - (new in v3.5)
 - *(new in v3.5)* — being in the TOP N already vouches for a photo's quality, so a single tap marks any top shot as a phone wallpaper. Each ranked card and the lightbox get a **📱 toggle** (press **B** in the lightbox), a **Phone BG** filter chip shows just the ones you picked, and **Export Phone BG** writes a `PhoneBG/` folder with two subfolders: `Original/` (full-res copies) and `Wallpaper_19.5x9/` (each photo center-cropped and resized to **1290×2796, 19.5:9**). That ratio is pixel-perfect on iPhones and, because phones zoom wallpapers to fill, covers nearly all Android (20:9) too — one universal crop, no device picker.
 
-<div align="center"><img width="30%" alt="Phones-PhotoCurator-BG" src="https://github.com/user-attachments/assets/f6652bbd-575c-4500-9234-c78b7601e085" /></div>
+<div align="center">
+  <img width="800" height="450" alt="PhotoCuratorv3 7-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/2da0c07b-8759-4fde-9e64-74d389d14c72" />
+
+</div>
 
 ## 📍 Photo EXIF & Location Data - (new in v3.7)
 
