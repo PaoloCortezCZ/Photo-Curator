@@ -1,0 +1,16 @@
+# Photo Curator — SHA-256 checksums
+# Verify with:  shasum -a 256 -c CHECKSUMS.txt   (macOS)
+#               sha256sum -c CHECKSUMS.txt        (Linux)
+# Generated: 2026-06-01T18:08:07Z
+
+e7d7f941fe91bb3952d5b58e346e9ba2a56ab56ec13ac1bfbea4b535191b276f  photo_curator.py
+c26774ea2a7cd45faedca3fdc44690052f221914843f0552ffbbe96c9e01f0ce  photo_dedup_batch.py
+fa493703780b0981bfee5148c132e522929e03568df5c7d19750c4c8a5eb51c2  photo_file_organizer.py
+6e328d0b3c15e5029644b4dcff017b45ee6c106147e2e1e8da799d30156a16ac  photo_ranking_engine.py
+df51fca24c77f22a0a6192314dc135ee6dc306b232715ddba9689c7fb6a06c2a  photo_ranking_v3.py
+02959dbaa7aee13f1c2661d2ba3ab03f1fd79b1cb7deb6be1a7b098d08c31530  requirements.txt
+
+# Offline bundle (lives one level up from this folder). To verify it, run from
+# the directory that contains the .zip:
+#   echo "ea3454d7ee2188ee6b4c45b138cc46797d6bc04b32f793f9311e1f2ceac94167  PhotoCurator-Mac-AppleSilicon-Offline.zip" | shasum -a 256 -c
+ea3454d7ee2188ee6b4c45b138cc46797d6bc04b32f793f9311e1f2ceac94167  PhotoCurator-Mac-AppleSilicon-Offline.zip

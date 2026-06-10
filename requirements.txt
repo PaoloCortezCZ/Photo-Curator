@@ -1,4 +1,27 @@
-Flask>=2.0
-opencv-python>=4.5
-numpy>=1.20
-Pillow>=9.0
+# Photo Curator — pinned dependencies (v5)
+# Versions match the tested macOS offline bundle. Pinning exact versions makes
+# installs reproducible and lets `pip-audit` / `safety` check a known set.
+#
+#   pip install -r requirements.txt
+#   pip install pip-audit && pip-audit -r requirements.txt   # vuln scan
+#
+# The app imports cv2 only for image decoding/analysis (no GUI), so the
+# lighter "headless" OpenCV build is used. If you prefer the full build,
+# swap in: opencv-python==4.10.0.84
+
+Flask==3.1.3
+Pillow==11.3.0
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+
+# RAW photo support (CR2/CR3, NEF, ARW, DNG, ...) via LibRaw bindings.
+# Optional: the app runs without it, but RAW files won't be recognised.
+rawpy>=0.21,<1.0
+
+# Transitive (pinned for reproducibility; pulled in by Flask)
+Werkzeug==3.1.8
+Jinja2==3.1.6
+itsdangerous==2.2.0
+click==8.1.8
+blinker==1.9.0
+MarkupSafe==3.0.3

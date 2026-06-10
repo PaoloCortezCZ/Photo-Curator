@@ -102,9 +102,8 @@ class AdvancedPhotoAnalyzer:
         """Return (bgr, gray) downscaled to a fixed long edge for consistent,
         resolution-independent metrics. Uses a reduced-resolution decode for
         speed on big Canon JPEGs."""
-        bgr = cv2.imread(str(image_path), cv2.IMREAD_REDUCED_COLOR_2)
-        if bgr is None:
-            bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        from raw_loader import imread_bgr
+        bgr = imread_bgr(str(image_path))   # RAW-aware (CR2/NEF/ARW/DNG...)
         if bgr is None:
             return None, None
         h, w = bgr.shape[:2]

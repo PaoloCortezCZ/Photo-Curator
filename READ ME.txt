@@ -1,0 +1,31 @@
+PHOTO CURATOR v6.0 — Offline, for Apple Silicon Macs (M1/M2/M3/M4)
+
+TO START:
+1. Keep this whole "PhotoCurator" folder together (don't move files out).
+2. Right-click (or Control-click) "Start Photo Curator.command"
+   -> choose "Open" -> click "Open" in the dialog.
+   (Right-click → Open is needed only the FIRST time. After that you can
+   just double-click it.)
+3. A small Terminal window opens showing progress, and your browser
+   opens automatically at http://127.0.0.1:5014
+
+TO QUIT:
+Close the Terminal window, or press Ctrl-C in it.
+
+NEW IN v6.0 — RAW SUPPORT:
+- RAW files are curated alongside JPEGs: Canon CR2/CR3, Nikon NEF,
+  Sony ARW, Adobe DNG, Fuji RAF, Olympus ORF, Panasonic RW2 and more.
+- Fast: the full-size preview your camera embeds in every RAW is used
+  for thumbnails and analysis — EXIF (date, lens, GPS) included.
+- Shooting RAW+JPG? In Cull, use the "All types / RAW only / JPG only"
+  filter chips; RAW frames carry a purple RAW tag.
+- Exports always copy your original RAW files, untouched.
+- Running from source instead of this bundle? RAW needs one extra
+  library: pip install rawpy
+  (Without it the app still works, JPEG-only, and says so in the sidebar.)
+
+NOTES:
+- 100% offline and local. Nothing is uploaded.
+- Uses port 5014 (50mm f/1.4); macOS reserves port 5000 for AirPlay.
+- If the window shows a Python version that isn't 3.9, tell me and I'll
+  rebuild the libraries to match.

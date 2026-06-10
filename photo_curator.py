@@ -21,6 +21,7 @@ survivors, else the whole folder.
 Pure cv2 / numpy / Pillow + Flask. Fully offline. Port 5001.
 """
 
+import os
 import io
 import json
 import time
@@ -38,6 +39,8 @@ import numpy as np
 from flask import Flask, render_template_string, request, jsonify, send_file, abort
 from PIL import Image, ImageOps
 
+from raw_loader import (RAW_EXTS, HAS_RAWPY, is_raw,
+                        open_image_pil, imread_bgr, imread_gray)
 from photo_ranking_v3 import AdvancedPhotoAnalyzer
 from photo_dedup_batch import FastBatchDeduplicator
 from photo_file_organizer import PhotoOrganizer
@@ -47,7 +50,58 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# macOS reserves port 5000 for the AirPlay Receiver (returns HTTP 403).
+# Default to 5014 ('50mm f/1.4'). Override with PHOTOCURATOR_PORT if needed.
+PORT = int(os.environ.get('PHOTOCURATOR_PORT', '5014'))
+
+# Host headers we accept. A DNS-rebinding attacker's page reaches us with the
+# attacker's domain in the Host header, not one of these, so it's rejected.
+_ALLOWED_HOSTS = {f'127.0.0.1:{PORT}', f'localhost:{PORT}',
+                  '127.0.0.1', 'localhost'}
+
+
+@app.before_request
+def _guard_request():
+    """Block requests forged by a malicious web page (DNS rebinding / CSRF).
+
+    A page on some other site can make the browser fire requests at
+    127.0.0.1, but it cannot forge the Host header (the browser sets it from
+    the rebound hostname) nor send a same-origin Origin. We reject anything
+    whose Host isn't our loopback address, or whose Origin/Referer points at
+    a different site."""
+    host = (request.host or '').lower()
+    if host not in _ALLOWED_HOSTS:
+        abort(403)
+    origin = request.headers.get('Origin')
+    if origin:
+        from urllib.parse import urlparse
+        if urlparse(origin).hostname not in ('127.0.0.1', 'localhost'):
+            abort(403)
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['X-Frame-Options'] = 'DENY'
+    resp.headers['Referrer-Policy'] = 'no-referrer'
+    resp.headers.setdefault(
+        'Content-Security-Policy',
+        # img-src allows https: for the OpenStreetMap GPS tiles and Ko-fi badge.
+        "default-src 'self'; img-src 'self' data: https:; "
+        "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
+    return resp
+
 IMG_EXTS = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'}
+# RAW formats (CR2/CR3, NEF, ARW, DNG, ...) — decoded via rawpy if installed.
+if HAS_RAWPY:
+    IMG_EXTS |= RAW_EXTS
+else:
+    logger.warning("=" * 64)
+    logger.warning("rawpy is NOT installed — RAW files (CR2/CR3/NEF/ARW/DNG...)")
+    logger.warning("will be IGNORED. Enable RAW support with:")
+    logger.warning("    pip install rawpy")
+    logger.warning("then restart Photo Curator.")
+    logger.warning("=" * 64)
 RECENTS_FILE = Path.home() / '.photo_curator_recents.json'
 THUMB_DIR = Path('/tmp/photocurator_thumbs')
 THUMB_DIR.mkdir(parents=True, exist_ok=True)
@@ -55,6 +109,60 @@ THUMB_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_WEIGHTS = {'aesthetic': 30, 'composition': 22, 'technical': 20,
                    'sharpness': 16, 'color': 12}
 CATEGORIES = ['composition', 'technical', 'sharpness', 'color', 'aesthetic']
+
+
+# --------------------------------------------------------------------------- #
+#  Security (v5)
+#  The server only ever serves files that live inside a folder the user has
+#  explicitly chosen (the current selection or a recent one). This stops a
+#  crafted ?path= request from reading arbitrary files off the disk
+#  (e.g. ../../etc/passwd or /Users/you/.ssh/id_rsa) via a malicious web page
+#  pointed at 127.0.0.1.
+# --------------------------------------------------------------------------- #
+def _allowed_roots():
+    """Resolved real paths the app is permitted to read from: the current
+    folder plus any recently-used folders."""
+    roots = []
+    cur = state.get('folder')
+    if cur:
+        roots.append(cur)
+    try:
+        roots.extend(load_recents())
+    except Exception:
+        pass
+    out = []
+    for r in roots:
+        try:
+            out.append(os.path.realpath(r))
+        except Exception:
+            continue
+    return out
+
+
+def _safe_image_path(raw):
+    """Resolve a user-supplied ?path= to a real file and confirm it is an
+    allowed image inside an allowed root. Returns a Path or None.
+
+    realpath() collapses '..' and resolves symlinks, so neither path
+    traversal nor a symlink planted in a watched folder can escape."""
+    if not raw:
+        return None
+    try:
+        real = os.path.realpath(raw)
+    except Exception:
+        return None
+    p = Path(real)
+    if not p.is_file() or p.suffix.lower() not in IMG_EXTS:
+        return None
+    roots = _allowed_roots()
+    if not roots:
+        return None
+    for root in roots:
+        # Match the resolved file against each allowed root. The os.sep guard
+        # prevents '/photos-evil' from matching an allowed '/photos'.
+        if real == root or real.startswith(root + os.sep):
+            return p
+    return None
 
 
 def _blank():
@@ -77,6 +185,39 @@ state = {
 # --------------------------------------------------------------------------- #
 #  Helpers
 # --------------------------------------------------------------------------- #
+def collapse_raw_jpg_pairs(paths, prefer):
+    """Collapse RAW+JPG pairs of the SAME frame (same folder + same filename
+    stem, e.g. IMG_0001.CR2 + IMG_0001.JPG) down to one file.
+    prefer: 'raw' keeps the RAW, 'jpg' keeps the JPG; anything else = no-op.
+    Returns (paths, pairs_collapsed); original order is preserved."""
+    if prefer not in ('raw', 'jpg'):
+        return paths, 0
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for p in paths:
+        pp = Path(p)
+        groups[(str(pp.parent), pp.stem.lower())].append(p)
+    keep, collapsed = set(), 0
+    for g in groups.values():
+        raws = [p for p in g if is_raw(p)]
+        others = [p for p in g if not is_raw(p)]
+        if raws and others:
+            keep.update(map(str, raws if prefer == 'raw' else others))
+            collapsed += 1
+        else:
+            keep.update(map(str, g))
+    return [p for p in paths if str(p) in keep], collapsed
+
+
+def filter_ftype(paths, ftype):
+    """Keep only RAW or only non-RAW paths ('all' = no filtering)."""
+    if ftype == 'raw':
+        return [p for p in paths if is_raw(p)]
+    if ftype == 'jpg':
+        return [p for p in paths if not is_raw(p)]
+    return paths
+
+
 def list_images(folder):
     p = Path(folder)
     if not p.is_dir():
@@ -106,7 +247,7 @@ def make_thumb_file(image_path, size=300):
     if out.exists():
         return out
     try:
-        img = Image.open(image_path)
+        img = open_image_pil(image_path)   # RAW-aware (uses embedded preview)
         img.draft('RGB', (size * 2, size * 2))
         # Honor the EXIF orientation flag so portrait photos aren't shown
         # sideways in thumbnails (the full-size view already auto-rotates).
@@ -313,6 +454,7 @@ def run_cull(folder, strictness, adaptive, rescue_on):
                 photos.append({'name': it['name'], 'path': it['path'],
                                'thumb': thumb_url(it['path']), 'score': f"{it['region_s']:.0f}",
                                'badge': badge, 'badgeType': bt, 'tier': tier,
+                               'raw': is_raw(it['path']),
                                'kept': tier != 'blurry', 'rejected': tier == 'blurry'})
             # Newest-processed first in the live grid (no scrolling to bottom).
             # Only the display order is reversed; `kept` stays in capture order
@@ -346,9 +488,7 @@ def run_cull(folder, strictness, adaptive, rescue_on):
             eta = (total - done) / rate if rate > 0 else 0
             s['status'] = (f"Culling {p.name} ({done}/{total}, {done/total*100:.0f}%) · "
                            f"{_tiers(done)} · elapsed {_fmt(elapsed)} · ETA {_fmt(eta)}")
-            bgr = cv2.imread(str(p), cv2.IMREAD_REDUCED_COLOR_2)
-            if bgr is None:
-                bgr = cv2.imread(str(p), cv2.IMREAD_COLOR)
+            bgr = imread_bgr(str(p))       # RAW-aware
             if bgr is None:
                 continue
             gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
@@ -413,7 +553,7 @@ def _relocate_for_status(path, now_kept):
 # --------------------------------------------------------------------------- #
 #  DEDUP
 # --------------------------------------------------------------------------- #
-def run_dedup(folder, threshold):
+def run_dedup(folder, threshold, ftype='all', pair='both'):
     s = state['dedup']
     s.update({'running': True, 'cancel': False, 'progress': 0, 'status': 'Preparing…',
               'photos': [], 'groups': 0, 'kept_paths': [],
@@ -432,8 +572,22 @@ def run_dedup(folder, threshold):
             paths = list_images(folder)
             logger.info(f"Dedup: scanning full folder ({len(paths)} images) "
                         f"— no completed Cull for this folder")
+        # Honor the Cull file-type filter (RAW only / JPG only).
+        if ftype in ('raw', 'jpg'):
+            before = len(paths)
+            paths = filter_ftype(paths, ftype)
+            logger.info(f"Dedup: {ftype.upper()}-only filter — "
+                        f"{len(paths)} of {before} photos continue")
+            s['status'] = (f"{ftype.upper()} only — {len(paths)} of {before} "
+                           f"photos continue to Dedup")
+        # Collapse RAW+JPG pairs of the same frame (setting in Dedup panel).
+        paths, npairs = collapse_raw_jpg_pairs(paths, pair)
+        if npairs:
+            logger.info(f"Dedup: {npairs} RAW+JPG pairs collapsed (kept {pair.upper()})")
+            s['status'] = f"{npairs} RAW+JPG pairs collapsed — kept {pair.upper()}"
         if not paths:
-            s['status'] = 'No images'
+            s['status'] = ('No images' if ftype == 'all'
+                           else f'No {ftype.upper()} images to dedup')
             return
         dd = FastBatchDeduplicator(threshold=threshold)
         # Persist perceptual signatures so a repeat run on this folder is fast.
@@ -496,9 +650,7 @@ def run_dedup(folder, threshold):
             s['status'] = (f"Deduping {p.name} ({done}/{total}) · "
                            f"{uniq} unique ({pct_uniq:.0f}%) · "
                            f"elapsed {_fmt(elapsed)} · ETA {_fmt(eta)}")
-            gray = cv2.imread(str(p), cv2.IMREAD_REDUCED_GRAYSCALE_2)
-            if gray is None:
-                gray = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+            gray = imread_gray(str(p))     # RAW-aware
             sharp = sharpness_score(gray) if gray is not None else 0.0
             dd.add_photo(_LiteScore(str(p), p.name, sharp, sharp))
             if time.time() - last_refresh[0] >= REFRESH_SECS or idx == total - 1:
@@ -568,7 +720,7 @@ def build_topn(weights=None, topn=None):
     return out
 
 
-def run_rank(folder):
+def run_rank(folder, ftype='all', pair='both'):
     s = state['rank']
     s.update({'running': True, 'cancel': False, 'progress': 0, 'status': 'Preparing…',
               'scores': [], 'total': 0, 'analyzed': 0})
@@ -586,8 +738,21 @@ def run_rank(folder):
         else:
             paths = list_images(folder)
             chain = 'all photos'
+        # Honor the Cull file-type filter (RAW only / JPG only).
+        if ftype in ('raw', 'jpg'):
+            before = len(paths)
+            paths = filter_ftype(paths, ftype)
+            chain += f' · {ftype.upper()} only ({len(paths)} of {before})'
+            logger.info(f"Rank: {ftype.upper()}-only filter — "
+                        f"{len(paths)} of {before} photos continue")
+        # Collapse RAW+JPG pairs too (covers ranking straight from Cull/folder).
+        paths, npairs = collapse_raw_jpg_pairs(paths, pair)
+        if npairs:
+            chain += f' · {npairs} RAW+JPG pairs → {pair.upper()}'
+            logger.info(f"Rank: {npairs} RAW+JPG pairs collapsed (kept {pair.upper()})")
         if not paths:
-            s['status'] = 'No images to rank'
+            s['status'] = ('No images to rank' if ftype == 'all'
+                           else f'No {ftype.upper()} images to rank')
             return
         total = len(paths)
         s['total'] = total
@@ -629,7 +794,7 @@ def run_rank(folder):
 # --------------------------------------------------------------------------- #
 HTML = r'''<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Photo Curator v4.0</title>
+<title>Photo Curator v6.0</title>
 <style>
   :root{--bg:#f4f6fb;--panel:#fff;--panel2:#eef1f7;--text:#1c2330;--muted:#6b7280;
         --accent:#2563eb;--good:#16a34a;--warn:#d97706;--bad:#dc2626;--border:#dde3ec;--shadow:rgba(20,40,80,.10);color-scheme:light}
@@ -701,6 +866,12 @@ HTML = r'''<!doctype html><html lang="en"><head>
   .pager button:disabled{opacity:.4;cursor:not-allowed}
   .chip{padding:5px 12px;border:1px solid var(--border);border-radius:16px;background:var(--panel);color:var(--text);cursor:pointer;font-size:12px;font-weight:600}
   .chip:hover{border-color:var(--accent)} .chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .chip-sep{width:1px;height:18px;background:var(--border);margin:0 4px;align-self:center}
+  .ftype{flex:none;margin-left:4px;padding:1px 5px;border-radius:3px;background:#8a2be2;color:#fff;font-size:9px;font-weight:700;letter-spacing:.5px}
+  .ftype.jpg{background:#64748b}
+  .wgroup select{width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text);font-size:13px}
+  .badge-tier{border:none;cursor:pointer;font:inherit;font-size:10px;font-weight:700}
+  .badge-tier:hover{filter:brightness(1.15);box-shadow:0 0 0 2px rgba(0,0,0,.25)}
   .rank-num{position:absolute;top:6px;left:6px;background:var(--accent);color:#fff;min-width:24px;height:24px;padding:0 6px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;z-index:5}
   .badge{position:absolute;top:6px;right:6px;color:#fff;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;z-index:5}
   .badge.good{background:var(--good)} .badge.bad{background:var(--bad)}
@@ -761,7 +932,7 @@ HTML = r'''<!doctype html><html lang="en"><head>
   .toast.good{border-left-color:var(--good)} .toast.bad{border-left-color:var(--bad)} .toast.info{border-left-color:var(--accent)}
 </style></head><body>
 <div class="top">
-  <div class="brand">🎞️ Photo Curator <small>v4.0</small></div>
+  <div class="brand">🎞️ Photo Curator <small>v6.0</small></div>
   <div class="steps">
     <div class="step active" data-step="cull">1 · Cull</div>
     <div class="step" data-step="dedup">2 · Dedup</div>
@@ -845,6 +1016,8 @@ function toast(msg,type){
 let folder=null, photos=[], lbList=[], lbIndex=0, currentStep='cull';
 let lastRankSig='', renderedCount=0, photoIdx=0, lastStep=null, weightTimer=null, removedCount=0;
 const CATS=[['aesthetic','Aesthetic'],['composition','Composition'],['technical','Technical'],['sharpness','Sharpness'],['color','Color']];
+const catColor=(i,n)=>`hsl(${Math.round(i*360/(n||CATS.length))},80%,62%)`;
+const CATCOLORS=CATS.map((_,i)=>catColor(i,CATS.length));
 const DEFAULTS={aesthetic:30,composition:22,technical:20,sharpness:16,color:12};
 let weights={...DEFAULTS};
 
@@ -863,6 +1036,13 @@ function settingsHTML(step){
   if(step==='dedup') return `<div class="wgroup"><label>Similarity threshold</label>
       <input type="range" id="opt" min="0.5" max="0.95" step="0.05" value="0.8">
       <div class="slider-value">Group when similarity ≥ <b id="optVal">0.80</b> · lower = more aggressive</div></div>
+      <div class="wgroup" style="margin-top:10px"><label>RAW+JPG pairs (same frame)</label>
+      <select id="pairMode">
+        <option value="both">Keep both</option>
+        <option value="raw">Keep RAW only</option>
+        <option value="jpg">Keep JPG only</option>
+      </select>
+      <div class="slider-value">Same-name pairs (IMG_0001.CR2 + .JPG) collapse to one before dedup</div></div>
       <label class="check"><input type="checkbox" id="autoOrg"> Auto-move duplicates → Duplicates/</label>`;
   // rank
   return `<div class="sidebar-title" style="margin-bottom:4px">⚖️ Scoring weights</div>
@@ -893,6 +1073,8 @@ function renderSettings(){
   document.getElementById('settingsPanel').innerHTML=settingsHTML(currentStep);
   const opt=document.getElementById('opt'),val=document.getElementById('optVal');
   if(opt&&val)opt.oninput=()=>{val.textContent=(currentStep==='dedup'||currentStep==='cull')?parseFloat(opt.value).toFixed(2):opt.value;};
+  const pm=document.getElementById('pairMode');
+  if(pm){pm.value=pairMode;pm.onchange=()=>{pairMode=pm.value;};}
   const ao=document.getElementById('autoOrg');
   if(ao)ao.onchange=()=>fetch('/api/set-auto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({step:currentStep,enabled:ao.checked})}).catch(()=>{});
   if(currentStep==='rank'){renderWeights();
@@ -921,15 +1103,21 @@ document.querySelectorAll('.step').forEach(t=>t.onclick=()=>{
 renderSettings();
 
 /* cull filter chips */
-let cullFilter='all', rankFilter='all';
+let cullFilter='all', cullType='all', rankFilter='all', pairMode='both';
 function setupFilterBar(){
   const bar=document.getElementById('filterBar');
   if(currentStep==='cull'){
     const opts=[['all','All'],['sharp','Sharp'],['soft','Soft ★'],['blurry','Blurry']];
+    const types=[['all','All types'],['raw','RAW only'],['jpg','JPG only']];
     bar.style.display='flex';
-    bar.innerHTML=opts.map(([k,l])=>`<button class="chip${k===cullFilter?' active':''}" data-f="${k}">${l}</button>`).join('');
-    bar.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{cullFilter=c.dataset.f;
-      bar.querySelectorAll('.chip').forEach(x=>x.classList.toggle('active',x.dataset.f===cullFilter));
+    bar.innerHTML=opts.map(([k,l])=>`<button class="chip${k===cullFilter?' active':''}" data-f="${k}">${l}</button>`).join('')
+      +`<span class="chip-sep"></span>`
+      +types.map(([k,l])=>`<button class="chip${k===cullType?' active':''}" data-t="${k}">${l}</button>`).join('');
+    bar.querySelectorAll('.chip[data-f]').forEach(c=>c.onclick=()=>{cullFilter=c.dataset.f;
+      bar.querySelectorAll('.chip[data-f]').forEach(x=>x.classList.toggle('active',x.dataset.f===cullFilter));
+      renderCullStep(photos);});
+    bar.querySelectorAll('.chip[data-t]').forEach(c=>c.onclick=()=>{cullType=c.dataset.t;
+      bar.querySelectorAll('.chip[data-t]').forEach(x=>x.classList.toggle('active',x.dataset.t===cullType));
       renderCullStep(photos);});
     return;
   }
@@ -952,6 +1140,10 @@ document.getElementById('gallery').innerHTML=emptyHTML(currentStep);  // step ex
 function loadShortcuts(){fetch('/api/shortcuts').then(r=>r.json()).then(d=>{
   let h='';(d.sd||[]).forEach(p=>h+=`<button class="shortcut" data-p="${p}"><span class="tag sd">SD</span>${p.split('/').slice(-2).join('/')}</button>`);
   (d.recent||[]).slice(0,4).forEach(p=>h+=`<button class="shortcut" data-p="${p}"><span class="tag recent">RECENT</span>${p.split('/').slice(-2).join('/')}</button>`);
+  if(d.rawpy===false)h=`<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;`
+    +`padding:8px 10px;font-size:11px;line-height:1.5;margin-bottom:6px">⚠️ <b>RAW support off</b> — `
+    +`rawpy is not installed, so CR2/NEF/ARW/DNG files are skipped.<br>`
+    +`Run <code>pip install rawpy</code> and restart.</div>`+h;
   document.getElementById('shortcuts').innerHTML=h;
   document.querySelectorAll('.shortcut').forEach(b=>b.onclick=()=>{folder=b.dataset.p;document.getElementById('folderInput').value=folder;});});}
 loadShortcuts();
@@ -980,9 +1172,14 @@ function startStep(step){
   // Settings come from the active step's panel (activateStep switched it first).
   const opt=document.getElementById('opt');
   const ad=document.getElementById('cAdaptive'),rs=document.getElementById('cRescue');
+  // Carry the Cull file-type filter (RAW only / JPG only) into Dedup & Rank.
+  if(step!=='cull'&&cullType!=='all')
+    toast('Continuing with '+(cullType==='raw'?'RAW':'JPG')+' files only — switch the Cull filter to "All types" to include everything','');
   fetch('/api/run/'+step,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({folder,opt:opt?parseFloat(opt.value):0,
       adaptive:ad?ad.checked:true, rescue:rs?rs.checked:true,
+      ftype:step==='cull'?'all':cullType,
+      pair:step==='cull'?'both':pairMode,
       topn:parseInt((document.getElementById('topn')||{}).value)||50})});
   setTimeout(()=>poll(step),200);
 }
@@ -1062,10 +1259,18 @@ function radarSVG(metrics,size=210){
   const cx=size/2,cy=size/2,R=size/2-30,n=metrics.length;
   const ang=i=>-Math.PI/2+i*2*Math.PI/n,pt=(i,r)=>[cx+Math.cos(ang(i))*r,cy+Math.sin(ang(i))*r];
   let grid='';[0.25,0.5,0.75,1].forEach(f=>{const p=metrics.map((m,i)=>pt(i,R*f).map(v=>v.toFixed(1)).join(',')).join(' ');grid+=`<polygon points="${p}" fill="none" stroke="rgba(255,255,255,.18)"/>`;});
+  const col=i=>catColor(i,n);
   let sp='',lb='';metrics.forEach((m,i)=>{const[x,y]=pt(i,R);sp+=`<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,.18)"/>`;
-    const[lx,ly]=pt(i,R+15);lb+=`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="9.5" fill="rgba(255,255,255,.85)" text-anchor="middle" dominant-baseline="middle">${m.label}</text>`;});
-  const dp=metrics.map((m,i)=>pt(i,R*Math.max(0,Math.min(1,(m.value||0)/100))).map(v=>v.toFixed(1)).join(',')).join(' ');
-  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${grid}${sp}<polygon points="${dp}" fill="rgba(96,165,250,.35)" stroke="#60a5fa" stroke-width="2"/>${lb}</svg>`;
+    const[lx,ly]=pt(i,R+15);lb+=`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="9.5" font-weight="600" fill="${col(i)}" text-anchor="middle" dominant-baseline="middle">${m.label}</text>`;});
+  // data vertices + a full multi-colour fill: each wedge blends its two corner colours
+  const dpt=metrics.map((m,i)=>pt(i,R*Math.max(0,Math.min(1,(m.value||0)/100))));
+  const uid='rg'+(radarSVG._n=(radarSVG._n||0)+1);
+  let defs='',fill='';
+  for(let i=0;i<n;i++){const j=(i+1)%n;const[ax,ay]=dpt[i],[bx,by]=dpt[j];const gid=uid+'_'+i;
+    defs+=`<linearGradient id="${gid}" gradientUnits="userSpaceOnUse" x1="${ax.toFixed(1)}" y1="${ay.toFixed(1)}" x2="${bx.toFixed(1)}" y2="${by.toFixed(1)}"><stop offset="0" stop-color="${col(i)}"/><stop offset="1" stop-color="${col(j)}"/></linearGradient>`;
+    fill+=`<polygon points="${cx},${cy} ${ax.toFixed(1)},${ay.toFixed(1)} ${bx.toFixed(1)},${by.toFixed(1)}" fill="url(#${gid})" fill-opacity=".5" stroke="none"/>`;}
+  const dp=dpt.map(p=>p.map(v=>v.toFixed(1)).join(',')).join(' ');
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"><defs>${defs}</defs>${grid}${sp}${fill}<polygon points="${dp}" fill="none" stroke="rgba(255,255,255,.65)" stroke-width="1.5"/>${lb}</svg>`;
 }
 
 /* ---- renderers ---- */
@@ -1204,13 +1409,13 @@ const NEXT_TIER={sharp:'soft',soft:'blurry',blurry:'sharp'};
 function cullCardHtml(p,idx){const path=String(p.path).replace(/"/g,'&quot;');
   const cls=p.tier==='sharp'?'kept':p.tier==='soft'?'soft':'rejected';
   return `<div class="photo-card ${cls}" data-i="${idx}" data-path="${path}" data-tier="${p.tier}">
-    <div class="badge ${p.badgeType}">${p.badge}</div>
-    <button class="status-toggle" data-path="${path}" data-tier="${p.tier}">⇄ ${TIER_NAME[p.tier]}</button>
+    <button class="badge ${p.badgeType} badge-tier" data-path="${path}" data-tier="${p.tier}" title="Click to change: Sharp → Soft → Blurry">⇄ ${p.badge}</button>
     <img class="photo-img" src="${p.thumb}" loading="lazy" decoding="async">
-    <div class="photo-info"><div class="pi-row"><span class="photo-name">${p.name}</span></div><div class="photo-score">${p.score}</div></div></div>`;}
+    <div class="photo-info"><div class="pi-row"><span class="photo-name">${p.name}</span><span class="ftype${p.raw?'':' jpg'}">${p.raw?'RAW':'JPG'}</span></div><div class="photo-score">${p.score}</div></div></div>`;}
 function renderCullStep(items){
   photos=items;
-  cullView=items.filter(p=>cullFilter==='all'?true:p.tier===cullFilter);
+  cullView=items.filter(p=>(cullFilter==='all'||p.tier===cullFilter)
+    &&(cullType==='all'||(cullType==='raw'?!!p.raw:!p.raw)));
   const g=document.getElementById('gallery');
   if(!cullView.length){g.innerHTML=EMPTY;lastCullSig='';lastStep=currentStep;document.getElementById('sShowing').textContent=0;return;}
   const sig=cullView.map(p=>p.path+':'+p.tier).join('|');
@@ -1257,7 +1462,7 @@ document.getElementById('gallery').addEventListener('click',e=>{
   const rm=e.target.closest('.remove-btn');if(rm){e.stopPropagation();removePhoto(rm.dataset.path);return;}
   const pb=e.target.closest('.pbg-toggle');
   if(pb){e.stopPropagation();togglePhoneBg(pb.dataset.path);return;}
-  const tg=e.target.closest('.status-toggle');
+  const tg=e.target.closest('.status-toggle,.badge-tier');
   if(tg){e.stopPropagation();cullSetTier(tg.dataset.path,NEXT_TIER[tg.dataset.tier||'sharp']);return;}
   const c=e.target.closest('.photo-card');if(!c)return;
   lbList=(currentStep==='cull')?cullView.slice():(currentStep==='rank'&&rankFilter==='pbg')?photos.filter(p=>p.phonebg):photos.slice();
@@ -1276,8 +1481,10 @@ const SUBINFO={'Rule of thirds':'Closeness of the main subject to a rule-of-thir
 const GROUPS=[['composition','Composition',['Rule of thirds','Horizon level','Balance']],
   ['technical','Technical',['Exposure','Dynamic range','Tonal range','White balance','Noise (clean)']],['color','Color',['Colorfulness','Color harmony']]];
 function barColor(v){return v>=70?'#22c55e':v>=45?'#f59e0b':'#ef4444';}
-function barRow(label,v,info,cat){const t=(info||'').replace(/"/g,'&quot;');
-  return `<div class="bar${cat?' cat':''}" title="${label}: ${t}"><span class="lab">${label}</span><span class="track"><span class="fill" style="width:${v}%;background:${barColor(v)}"></span></span><span class="num">${v}</span></div>`;}
+function barRow(label,v,info,cat,color){const t=(info||'').replace(/"/g,'&quot;');
+  const fillBg=color?color:barColor(v);
+  const labStyle=color?` style="color:${color};font-weight:600;border-left:3px solid ${color};padding-left:6px"`:'';
+  return `<div class="bar${cat?' cat':''}" title="${label}: ${t}"><span class="lab"${labStyle}>${label}</span><span class="track"><span class="fill" style="width:${v}%;background:${fillBg}"></span></span><span class="num">${v}</span></div>`;}
 function showLb(){
   const p=lbList[lbIndex];if(!p)return;
   document.getElementById('lbImg').src='/api/image?path='+encodeURIComponent(p.path);
@@ -1298,7 +1505,7 @@ function showLb(){
   if(currentStep==='rank'&&p.scores){
     const metrics=CATS.map(([k,lab])=>({label:lab,value:(p.scores&&p.scores[k])||0}));
     let html=`<div style="text-align:center">${radarSVG(metrics,150)}</div><h3>Category scores</h3>`;
-    CATS.forEach(([k,lab])=>html+=barRow(lab,(p.scores&&p.scores[k])||0,CATINFO[k],true));
+    CATS.forEach(([k,lab],ci)=>html+=barRow(lab,(p.scores&&p.scores[k])||0,CATINFO[k],true,CATCOLORS[ci]));
     const d=p.detail||{};GROUPS.forEach(([k,lab,keys])=>{const cv=(p.scores&&p.scores[k]);html+=`<h3>${lab}<span>${cv!=null?cv:''}</span></h3>`;keys.forEach(key=>{if(key in d)html+=barRow(key,d[key],SUBINFO[key]);});});
     html+=`<div style="font-size:10px;opacity:.5;margin-top:14px">Hover any row for what it measures.</div>`;
     side.style.display='block';side.innerHTML=html;
@@ -1398,7 +1605,8 @@ def index():
 
 @app.route('/api/shortcuts')
 def api_shortcuts():
-    return jsonify({'sd': detect_sd_cards(), 'recent': load_recents()})
+    return jsonify({'sd': detect_sd_cards(), 'recent': load_recents(),
+                    'rawpy': HAS_RAWPY})
 
 
 @app.route('/api/browse', methods=['POST'])
@@ -1413,11 +1621,10 @@ def api_browse():
 
 @app.route('/api/thumb')
 def api_thumb():
-    path = request.args.get('path', '')
-    p = Path(path)
-    if not p.is_file() or p.suffix.lower() not in IMG_EXTS:
+    p = _safe_image_path(request.args.get('path', ''))
+    if not p:
         abort(404)
-    f = make_thumb_file(path)
+    f = make_thumb_file(str(p))
     if not f:
         abort(404)
     resp = send_file(str(f))
@@ -1425,12 +1632,39 @@ def api_thumb():
     return resp
 
 
+def _raw_preview_file(image_path):
+    """Browser-displayable JPEG for a RAW file (browsers can't render CR2/NEF).
+    Cached on disk like thumbnails, keyed by path+mtime."""
+    try:
+        mtime = os.path.getmtime(image_path)
+    except OSError:
+        return None
+    key = hashlib.md5(f"{image_path}:{mtime}:preview-v1".encode()).hexdigest()
+    out = THUMB_DIR / f"{key}_full.jpg"
+    if out.exists():
+        return out
+    try:
+        img = open_image_pil(image_path)
+        img = ImageOps.exif_transpose(img).convert('RGB')
+        img.save(out, format='JPEG', quality=90)
+        return out
+    except Exception as e:
+        logger.warning(f"raw preview fail {image_path}: {e}")
+        return None
+
+
 @app.route('/api/image')
 def api_image():
-    path = request.args.get('path', '')
-    p = Path(path)
-    if not p.is_file() or p.suffix.lower() not in IMG_EXTS:
+    p = _safe_image_path(request.args.get('path', ''))
+    if not p:
         abort(404)
+    if is_raw(p):
+        f = _raw_preview_file(str(p))
+        if not f:
+            abort(404)
+        resp = send_file(str(f))
+        resp.headers['Cache-Control'] = 'public, max-age=86400'
+        return resp
     return send_file(str(p))
 
 
@@ -1460,7 +1694,9 @@ def extract_exif(path):
     from PIL.ExifTags import TAGS, GPSTAGS
     out = {}
     try:
-        with Image.open(path) as img:
+        # RAW-aware: for RAW files this reads the embedded JPEG preview,
+        # which carries the camera's full EXIF block.
+        with open_image_pil(path) as img:
             exif = img.getexif()
             if not exif:
                 return out
@@ -1527,9 +1763,8 @@ def extract_exif(path):
 
 @app.route('/api/exif')
 def api_exif():
-    path = request.args.get('path', '')
-    p = Path(path)
-    if not p.is_file() or p.suffix.lower() not in IMG_EXTS:
+    p = _safe_image_path(request.args.get('path', ''))
+    if not p:
         abort(404)
     return jsonify(extract_exif(str(p)))
 
@@ -1557,10 +1792,15 @@ def api_run(step):
         threading.Thread(target=run_cull, args=(folder, strictness, adaptive, rescue_on),
                          daemon=True).start()
     elif step == 'dedup':
-        threading.Thread(target=run_dedup, args=(folder, float(data.get('opt') or 0.8)), daemon=True).start()
+        threading.Thread(target=run_dedup,
+                         args=(folder, float(data.get('opt') or 0.8),
+                               data.get('ftype', 'all'), data.get('pair', 'both')),
+                         daemon=True).start()
     elif step == 'rank':
         state['topn'] = int(data.get('topn', 50))
-        threading.Thread(target=run_rank, args=(folder,), daemon=True).start()
+        threading.Thread(target=run_rank,
+                         args=(folder, data.get('ftype', 'all'),
+                               data.get('pair', 'both')), daemon=True).start()
     else:
         return jsonify({'error': 'bad step'}), 404
     return jsonify({'ok': True})
@@ -1776,7 +2016,7 @@ def api_export_phonebg():
         except Exception as e:
             logger.warning(f"phonebg original fail {src}: {e}")
         try:
-            with Image.open(src) as im:
+            with open_image_pil(src) as im:   # RAW-aware
                 crop_to_phone(im).save(str(crop_dir / f"{stem}.jpg"),
                                        format='JPEG', quality=92)
             cropped += 1
@@ -1787,8 +2027,5 @@ def api_export_phonebg():
 
 
 if __name__ == '__main__':
-    import os
-    # macOS reserves port 5000 for the AirPlay Receiver (returns HTTP 403).
-    # Default to 5014 ('50mm f/1.4'). Override with PHOTOCURATOR_PORT if needed.
-    _port = int(os.environ.get('PHOTOCURATOR_PORT', '5014'))
-    app.run(host='127.0.0.1', port=_port, debug=False, threaded=True)
+    # Bind to loopback only — never reachable from the local network.
+    app.run(host='127.0.0.1', port=PORT, debug=False, threaded=True)

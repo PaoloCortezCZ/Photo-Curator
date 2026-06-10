@@ -143,7 +143,8 @@ class FastBatchDeduplicator:
             except Exception:
                 pass
         try:
-            img = Image.open(image_path).convert('L')
+            from raw_loader import open_image_pil
+            img = open_image_pil(image_path).convert('L')   # RAW-aware
             # average hash: 8x8
             a = np.asarray(img.resize((8, 8), Image.BILINEAR), dtype=np.float32)
             ahash = (a > a.mean()).flatten()
@@ -180,7 +181,8 @@ class FastBatchDeduplicator:
             return self._ts_cache[image_path]
         result = None
         try:
-            img = Image.open(image_path)
+            from raw_loader import open_image_pil
+            img = open_image_pil(image_path)   # RAW-aware (EXIF from preview)
             exif = img.getexif()
             # 36867 = DateTimeOriginal, 306 = DateTime
             for tag in (36867, 306):
@@ -212,7 +214,8 @@ class FastBatchDeduplicator:
             return cached
         result = (0, None)
         try:
-            img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+            from raw_loader import imread_gray
+            img = imread_gray(path)   # RAW-aware
             if img is not None:
                 h = img.shape[0]
                 if h > 480:
